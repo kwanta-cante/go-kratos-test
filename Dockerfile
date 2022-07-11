@@ -13,6 +13,5 @@ RUN chmod 755 /usr/local/bin/wait-for-it.sh && \
 WORKDIR /src
 COPY . /src
 
-EXPOSE 4455
 
 CMD wait-for-it.sh -t 30 auth-db:5432 -- sh -c "reflex -sr '(\.go$|go\.mod|\.html$)' go run main.go"

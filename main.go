@@ -137,14 +137,14 @@ type Settings struct {
 func getSettings() Settings {
 	origin := getEnvStr("ORIGIN", "http://localhost:4455")
 	return Settings{
-		REDIRECT_URIS: getEnvStr("REDIRECT_URIS", fmt.Sprintf("http://localhost%s/dashboard", 4455)),
+		REDIRECT_URIS: getEnvStr("REDIRECT_URIS", fmt.Sprintf("http://localhost%s/info", 4455)),
 
 		HYDRA_PUBLIC_ORIGIN:  getEnvStr("HYDRA_PUBLIC_ORIGIN", "http://localhost:4444"),
 		HYDRA_ADMIN_ORIGIN:   getEnvStr("HYDRA_ADMIN_ORIGIN", "https://localhost:4445"),
 		KRATOS_PUBLIC_ORIGIN: getEnvStr("KRATOS_PUBLIC_ORIGIN", "http://localhost:4433"),
 
 		ORIGIN:       origin,
-		REDIRECT_URL: getEnvStr("ORIGIN", origin+"/dashboard"),
+		REDIRECT_URL: getEnvStr("ORIGIN", origin) + "/info",
 	}
 }
 
@@ -175,7 +175,7 @@ func main() {
 					"client_name": "Test OAuth2 Client",
 					"client_secret": "secret",
 					"grant_types": ["authorization_code", "refresh_token"],
-					"redirect_uris": ["http://localhost:4455/dashboard"],
+					"redirect_uris": ["http://localhost:4455/info"],
 					"response_types": ["code", "id_token"],
 					"scope": "openid offline",
 					"token_endpoint_auth_method": "client_secret_post",
@@ -227,7 +227,7 @@ func main() {
 	http.HandleFunc("/registration", s.ensureCookieFlowID("registration", s.handleRegister))
 	http.HandleFunc("/verification", s.ensureCookieFlowID("verification", s.handleVerification))
 	http.HandleFunc("/registered", ensureCookieReferer(s.handleRegistered))
-	http.HandleFunc("/dashboard", s.handleDashboard)
+	http.HandleFunc("/info", s.handleinfo)
 	http.HandleFunc("/recovery", s.ensureCookieFlowID("recovery", s.handleRecovery))
 	http.HandleFunc("/settings", s.ensureCookieFlowID("settings", s.handleSettings))
 	http.HandleFunc("/", s.handleIndex)
@@ -559,8 +559,8 @@ func (s *server) handleSettings(w http.ResponseWriter, r *http.Request, cookie, 
 	templateData.Render(w)
 }
 
-// handleDashboard shows dashboard
-func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
+// handleinfo shows info
+func (s *server) handleinfo(w http.ResponseWriter, r *http.Request) {
 	// get cookie from headers
 	cookie := r.Header.Get("cookie")
 	// get session details
