@@ -27,8 +27,10 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 	"gopkg.in/yaml.v3"
+  // This is for hydra admin basic auth
+  //httptransport "github.com/go-openapi/runtime/client"
 )
-
+import _ "github.com/motemen/go-loghttp/global"
 var store = sessions.NewCookieStore([]byte("secret-key"))
 
 var appSession *sessions.Session
@@ -47,11 +49,25 @@ type templateData struct {
 	Metadata Metadata
 }
 
+type Credentials struct {
+	User		string `yaml:"user"`
+	Pass		string `yaml:"pass"`
+}
+
+
+func (t Credentials) RoundTrip(req *http.Request) (*http.Response, error) {
+  req.Header.Set("Authorization", fmt.Sprintf("Basic %s",
+    base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s",
+      t.User, t.Pass)))))
+  return http.DefaultTransport.RoundTrip(req)
+}
+
 type idpConfig struct {
 	ClientID       string                 `yaml:"client_id"`
 	ClientSecret   string                 `yaml:"client_secret"`
 	ClientMetadata map[string]interface{} `yaml:"client_metadata"`
 	Port           int                    `yaml:"port"`
+	HydraAdminCreds Credentials					`yaml:"hydra_admin_credentials"`
 }
 
 type Metadata struct {
@@ -70,6 +86,13 @@ type server struct {
 	IDPConfig            *idpConfig
 }
 
+func logRequest(handler http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("%s %s %s\n", r.RemoteAddr, r.Method, r.URL)
+		handler.ServeHTTP(w, r)
+	})
+}
+
 func initSession(r *http.Request) *sessions.Session {
 	log.Println("session before get", appSession)
 
@@ -80,7 +103,7 @@ func initSession(r *http.Request) *sessions.Session {
 	session, err := store.Get(r, "idp")
 	appSession = session
 
-	log.Println("session after get", session)
+	log.Println("session after get",)
 	if err != nil {
 		panic(err)
 	}
@@ -236,7 +259,7 @@ func main() {
 
 	// start server
 	log.Println("Auth Server listening on port 4455")
-	log.Fatalln(http.ListenAndServe(s.Port, http.DefaultServeMux))
+	log.Fatalln(http.ListenAndServe(s.Port, logRequest(http.DefaultServeMux)))
 }
 
 // handleLogin handles login request from hydra and kratos login flow
@@ -262,6 +285,7 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		redirectTo := s.OAuth2Config.AuthCodeURL(state)
 		log.Infof("redirect to hydra, url: %s", redirectTo)
 		http.Redirect(w, r, redirectTo, http.StatusFound)
+		log.Infof("redirection set, finishing")
 		return
 	}
 
@@ -269,10 +293,17 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	// get login request from hydra only if there is no flow id in the url query parameters
 	if flowID == "" {
-		loginRes, _, err := s.HydraAPIClient.AdminApi.GetLoginRequest(r.Context()).LoginChallenge(challenge).Execute()
+	//hydraConf.basic = 
+		log.Println("creds: ", fmt.Sprintf("%v\n",s.IDPConfig.HydraAdminCreds ))
+		auth := context.WithValue(r.Context(), "basic", &hydra.BasicAuth{
+		 	UserName: s.IDPConfig.HydraAdminCreds.User,
+			Password: s.IDPConfig.HydraAdminCreds.Pass,
+		 })
+		loginRes, x, err := s.HydraAPIClient.AdminApi.GetLoginRequest(auth).LoginChallenge(challenge).Execute()
+		
 		if err != nil {
-			log.Error(err)
-			writeError(w, http.StatusUnauthorized, errors.New("Unauthorized OAuth Client"))
+			log.Println("Response: ", fmt.Sprintf("%v\n", x))
+			writeError(w, http.StatusUnauthorized, errors.New("Unauthorized 2 OAuth Client"))
 			return
 		}
 		log.Println("got client id: ", loginRes.Client.ClientId)
@@ -773,6 +804,12 @@ func (s *server) handleHydraConsent(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+
+// if auth, ok := ctx.Value(ContextBasicAuth).(BasicAuth); ok {
+// 	localVarRequest.SetBasicAuth(auth.UserName, auth.Password)
+// }
+
+
 func NewServer(kratosPublicEndpoint, hydraPublicEndpoint, hydraAdminEndpoint string) (*server, error) {
 	// create a new kratos client for self hosted server
 	conf := kratos.NewConfiguration()
@@ -784,13 +821,20 @@ func NewServer(kratosPublicEndpoint, hydraPublicEndpoint, hydraAdminEndpoint str
 	conf.HTTPClient = &http.Client{Jar: cj}
 
 	hydraConf := hydra.NewConfiguration()
+	idpConf := idpConfig{}
+	//hydraConf.basic = 
+
+
+
+	// &hydra.ContextBasicAuth{ UserName: idpConf.HydraAdminCreds.User, Password: idpConf.HydraAdminCreds.Pass }
+	log.Info("hydra url", hydraAdminEndpoint)
 	hydraConf.Servers = hydra.ServerConfigurations{{URL: hydraAdminEndpoint}}
 
-	idpConf := idpConfig{}
 
 	if err := yaml.Unmarshal(idpConfYAML, &idpConf); err != nil {
 		return nil, err
 	}
+	log.Info("Hydra admin Credentials", idpConf.HydraAdminCreds)
 
 	oauth2Conf := &oauth2.Config{
 		ClientID:     idpConf.ClientID,
@@ -805,10 +849,13 @@ func NewServer(kratosPublicEndpoint, hydraPublicEndpoint, hydraAdminEndpoint str
 
 	log.Println("OAuth2 Config: ", oauth2Conf)
 
+	hydraClient := hydra.NewAPIClient(hydraConf)
+	hydraConf.HTTPClient.Transport = idpConf.HydraAdminCreds
+
 	return &server{
 		KratosAPIClient:      kratos.NewAPIClient(conf),
 		KratosPublicEndpoint: settings.ORIGIN,
-		HydraAPIClient:       hydra.NewAPIClient(hydraConf),
+		HydraAPIClient:       hydraClient,
 		Port:                 fmt.Sprintf(":%d", idpConf.Port),
 		OAuth2Config:         oauth2Conf,
 		IDPConfig:            &idpConf,
