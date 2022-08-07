@@ -357,7 +357,7 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// store metadata value in session
+	// store metadata value in
 	c := getSessionValue(w, r, "showConsent")
 	consent, consentOK := c.(bool)
 	if consentOK {
@@ -724,6 +724,9 @@ func (s *server) handleHydraConsent(w http.ResponseWriter, r *http.Request) {
 	// check metadata value in session
 	v := getSessionValue(w, r, "showConsent")
 	showConsent, ok := v.(bool)
+	showConsent = false
+
+	log.Printf("Show consent? %s\n", showConsent)
 
 	switch {
 	// show the consent form only if user has not already granted scopes and consent form metadata is true
