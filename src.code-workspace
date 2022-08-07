@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../../../.."
+		},
+		{
+			"path": "../../../../../docker"
+		}
+	],
+  "settings": {
+    "go.useLanguageServer": true,
+    "go.autocompleteUnimportedPackages": false
+  }
+}
