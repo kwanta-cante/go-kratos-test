@@ -59,6 +59,8 @@ type Credentials struct {
 
 var DEFAULT_EXCLUDE_AUTH_PATHS = []string{
 	"/oauth2/token",
+	//"/oauth2/auth/requests/logout",
+	//"/oauth2/auth/requests/logout/accept",
 }
 
 type HttpsAuthTransport struct {
@@ -71,6 +73,7 @@ func (t HttpsAuthTransport) RoundTrip(req *http.Request) (*http.Response, error)
 
 	for _, no_auth_path := range t.Exclude {
 		if req.URL.Path == no_auth_path {
+
 			set_authorization_header = false
 			break
 		}
@@ -469,8 +472,10 @@ func (s *server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		} else {
 			getLogoutRequestRes, _, err := s.HydraAPIClient.AdminApi.GetLogoutRequest(r.Context()).
 				LogoutChallenge(challenge).Execute()
-			log.Println(err)
-			writeError(w, http.StatusUnauthorized, err)
+			if err != nil {
+				log.Println("Error", err, "address", &err)
+				writeError(w, http.StatusUnauthorized, err)
+			}
 			acceptLogoutRequestRes, _, err := s.HydraAPIClient.AdminApi.AcceptLogoutRequest(r.Context()).
 				LogoutChallenge(challenge).Execute()
 			if err != nil {
@@ -478,7 +483,7 @@ func (s *server) handleLogout(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusUnauthorized, err)
 			}
 			redirectURL := acceptLogoutRequestRes.RedirectTo
-			if getLogoutRequestRes.Client != nil {
+			if getLogoutRequestRes.Client != nil && len(getLogoutRequestRes.Client.PostLogoutRedirectUris) > 0 {
 				redirectURL = getLogoutRequestRes.Client.PostLogoutRedirectUris[0]
 			}
 			log.Println("logout redirect", redirectURL)
@@ -890,6 +895,7 @@ func NewServer(kratosPublicEndpoint, hydraPublicEndpoint, hydraAdminEndpoint str
 // writeError writes error to the response
 func writeError(w http.ResponseWriter, statusCode int, err error) {
 	w.WriteHeader(statusCode)
+	log.Println("Writing error response to browser statuscode: %d error: %s", statusCode, err)
 	if _, e := w.Write([]byte(err.Error())); e != nil {
 		log.Fatal(err)
 	}
